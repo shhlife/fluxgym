@@ -8,7 +8,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from griptape.artifacts import TextArtifact
-from griptape.drivers import OpenAiChatPromptDriver, OpenAiImageQueryDriver
+from griptape.drivers import OpenAiChatPromptDriver
 from griptape.loaders import ImageLoader
 from griptape.rules import Rule
 from griptape.structures import Workflow
@@ -27,6 +27,8 @@ from slugify import slugify
 MAX_IMAGES = 150
 
 load_dotenv()
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", None)
 
 
 def load_captioning(uploaded_files, concept_sentence):
@@ -153,17 +155,13 @@ def add_captions_to_list(task: CodeExecutionTask) -> TextArtifact:
     return TextArtifact(json_string)
 
 
-def run_captioning(images, concept_sentence, description_rules, *captions):
+def run_captioning(
+    images, concept_sentence, description_rules, openai_api_key, *captions
+):
     print("run_captioning")
     print(f"concept sentence {concept_sentence}")
     print(f"captions {captions}")
     print(f"description rules {description_rules}")
-    # Create a driver configured to use OpenAI's GPT-4 Vision model
-    driver = OpenAiImageQueryDriver(
-        model="gpt-4o",
-        max_tokens=100,
-        api_key=os.getenv("OPENAI_API_KEY"),
-    )
 
     # Create an engine configured to use the driver
     # engine = ImageQueryEngine(
@@ -173,7 +171,7 @@ def run_captioning(images, concept_sentence, description_rules, *captions):
     rules = [Rule(rule) for rule in rules_list]
     captions = list(captions)  # Convert tuple to a list
     workflow = Workflow()
-    driver = OpenAiChatPromptDriver(model="gpt-4o", api_key=os.getenv("OPENAI_API_KEY"))
+    driver = OpenAiChatPromptDriver(model="gpt-4o", api_key=openai_api_key)
 
     summary_task = CodeExecutionTask(
         "{{ parent_outputs }}",
@@ -649,11 +647,19 @@ with gr.Blocks(elem_id="app", theme=theme, css=css, fill_width=True) as demo:
                     scale=1,
                 )
             # add a group to provide the user with the option to add rules to the descriptions
-            with gr.Group():
+            with gr.Accordion("Caption Settings", open=True):
                 description_rules = gr.Textbox(
                     label="Rules for your captions",
                     info="Add rules for image descriptions, separated by new lines.",
                     placeholder="Examples:\nAlways mention the background color\nDescribe objects from left to right",
+                )
+
+                openai_api_key = gr.Textbox(
+                    label="OpenAI API Key",
+                    info="Add your OpenAI API key to use the Griptape captioning feature.",
+                    placeholder="sk-proj-...",
+                    value=OPENAI_API_KEY,
+                    type="password",
                 )
             with gr.Group(visible=False) as captioning_area:
                 do_captioning = gr.Button("Add AI captions with Griptape")
@@ -789,7 +795,8 @@ with gr.Blocks(elem_id="app", theme=theme, css=css, fill_width=True) as demo:
 
     do_captioning.click(
         fn=run_captioning,
-        inputs=[images, concept_sentence, description_rules] + caption_list,
+        inputs=[images, concept_sentence, description_rules, openai_api_key]
+        + caption_list,
         outputs=caption_list,
     )
     demo.load(fn=loaded, js=js)
