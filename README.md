@@ -1,9 +1,10 @@
-# Flux Gym
+# Flux Gym - Griptape Version
 
 Dead simple web UI for training FLUX LoRA **with LOW VRAM (12GB/16GB/20GB) support.**
 
 - **Frontend:** The WebUI forked from [AI-Toolkit](https://github.com/ostris/ai-toolkit) (Gradio UI created by https://x.com/multimodalart)
 - **Backend:** The Training script powered by [Kohya Scripts](https://github.com/kohya-ss/sd-scripts)
+- **Griptape Version:** The caption workflow is powered by [Griptape](https://github.com/griptape-ai/griptape). To use it, you will require an OpenAI API key saved in a `.env` file.
 
 ![screenshot.png](screenshot.png)
 
