@@ -649,12 +649,11 @@ with gr.Blocks(elem_id="app", theme=theme, css=css, fill_width=True) as demo:
                     scale=1,
                 )
             # add a group to provide the user with the option to add rules to the descriptions
-            with gr.Group(visible=True) as description_rules_area:
-                gr.Markdown("Description Rules")
+            with gr.Group():
                 description_rules = gr.Textbox(
-                    label="Add rules for image descriptions, separate with new lines",
+                    label="Rules for your captions",
+                    info="Add rules for image descriptions, separated by new lines.",
                     placeholder="Examples:\nAlways mention the background color\nDescribe objects from left to right",
-                    lines=3,
                 )
             with gr.Group(visible=False) as captioning_area:
                 do_captioning = gr.Button("Add AI captions with Griptape")
