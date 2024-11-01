@@ -32,4 +32,3 @@ peft
 gradio
 python-slugify
 imagesize
-griptape
