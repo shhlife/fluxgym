@@ -1,12 +1,45 @@
-# Flux Gym - Griptape Version
+# Flux Gym
 
 Dead simple web UI for training FLUX LoRA **with LOW VRAM (12GB/16GB/20GB) support.**
 
 - **Frontend:** The WebUI forked from [AI-Toolkit](https://github.com/ostris/ai-toolkit) (Gradio UI created by https://x.com/multimodalart)
 - **Backend:** The Training script powered by [Kohya Scripts](https://github.com/kohya-ss/sd-scripts)
-- **Griptape Version:** The caption workflow is powered by [Griptape](https://github.com/griptape-ai/griptape). To use it, you will require an OpenAI API key saved in a `.env` file.
+
+FluxGym supports 100% of Kohya sd-scripts features through an [Advanced](#advanced) tab, which is hidden by default.
 
 ![screenshot.png](screenshot.png)
+
+---
+
+
+# What is this?
+
+1. I wanted a super simple UI for training Flux LoRAs
+2. The [AI-Toolkit](https://github.com/ostris/ai-toolkit) project is great, and the gradio UI contribution by [@multimodalart](https://x.com/multimodalart) is perfect, but the project only works for 24GB VRAM.
+3. [Kohya Scripts](https://github.com/kohya-ss/sd-scripts) are very flexible and powerful for training FLUX, but you need to run in terminal.
+4. What if you could have the simplicity of AI-Toolkit WebUI and the flexibility of Kohya Scripts?
+5. Flux Gym was born. Supports 12GB, 16GB, 20GB VRAMs, and extensible since it uses Kohya Scripts underneath.
+
+---
+
+# News
+
+- September 25: Docker support + Autodownload Models (No need to manually download models when setting up) + Support custom base models (not just flux-dev but anything, just need to include in the [models.yaml](models.yaml) file.
+- September 16: Added "Publish to Huggingface" + 100% Kohya sd-scripts feature support: https://x.com/cocktailpeanut/status/1835719701172756592
+- September 11: Automatic Sample Image Generation + Custom Resolution: https://x.com/cocktailpeanut/status/1833881392482066638
+
+---
+
+# Supported Models
+
+1. Flux1-dev
+2. Flux1-dev2pro (as explained here: https://medium.com/@zhiwangshi28/why-flux-lora-so-hard-to-train-and-how-to-overcome-it-a0c70bc59eaf)
+3. Flux1-schnell (Couldn't get high quality results, so not really recommended, but feel free to experiment with it)
+4. More?
+
+The models are automatically downloaded when you start training with the model selected.
+
+You can easily add more to the supported models list by editing the [models.yaml](models.yaml) file. If you want to share some interesting base models, please send a PR.
 
 ---
 
@@ -16,15 +49,6 @@ Here are people using Fluxgym to locally train Lora sharing their experience:
 
 https://pinokio.computer/item?uri=https://github.com/cocktailpeanut/fluxgym
 
----
-
-# What is this?
-
-1. I wanted a super simple UI for training Flux LoRAs
-2. The [AI-Toolkit](https://github.com/ostris/ai-toolkit) project is great, and the gradio UI contribution by [@multimodalart](https://x.com/multimodalart) is perfect, but the project only works for 24GB VRAM.
-3. [Kohya Scripts](https://github.com/kohya-ss/sd-scripts) are very flexible and powerful for training FLUX, but you need to run in terminal.
-4. What if you could have the simplicity of AI-Toolkit WebUI and the flexibility of Kohya Scripts?
-5. Flux Gym was born. Supports 12GB, 16GB, 20GB VRAMs, and extensible since it uses Kohya Scripts underneath.
 
 # More Info
 
@@ -99,42 +123,9 @@ pip install -r requirements.txt
 Finally, install pytorch Nightly:
 
 ```
-pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu121
+pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
 
-Now let's download the model checkpoints.
-
-First, download the following models under the `models/clip` foder:
-
-- https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors?download=true
-- https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors?download=true
-
-Second, download the following model under the `models/vae` folder:
-
-- https://huggingface.co/cocktailpeanut/xulf-dev/resolve/main/ae.sft?download=true
-
-Finally, donwload the following model under the `models/unet` folder:
-
-- https://huggingface.co/cocktailpeanut/xulf-dev/resolve/main/flux1-dev.sft?download=true
-
-The result file structure will be something like:
-
-```
-/models
-  /clip
-    clip_l.safetensors
-    t5xxl_fp16.safetensors
-  /unet
-    flux1-dev.sft
-  /vae
-    ae.sft
-/sd-scripts
-/outputs
-/env
-app.py
-requirements.txt
-...
-```
 
 # Start
 
@@ -148,6 +139,25 @@ python app.py
 >
 > Windows: `env/Scripts/activate`
 > Linux: `source env/bin/activate`
+
+## 3. Install via Docker
+
+First clone Fluxgym and kohya-ss/sd-scripts:
+
+```
+git clone https://github.com/cocktailpeanut/fluxgym
+cd fluxgym
+git clone -b sd3 https://github.com/kohya-ss/sd-scripts
+```
+Check your `user id` and `group id` and change it if it's not 1000 via `environment variables` of `PUID` and `PGID`. 
+You can find out what these are in linux by running the following command: `id`
+
+Now build the image and run it via `docker-compose`:
+```
+docker compose up -d --build
+```
+
+Open web browser and goto the IP address of the computer/VM: http://localhost:7860
 
 # Usage
 
@@ -219,3 +229,31 @@ In addition to the `--d` flag, here are other flags you can use:
 - `--s`: Specifies the number of steps in the generation.
 
 The prompt weighting such as `( )` and `[ ]` also work. (Learn more about [Attention/Emphasis](https://github.com/AUTOMATIC1111/stable-diffusion-webui/wiki/Features#attentionemphasis))
+
+## Publishing to Huggingface
+
+1. Get your Huggingface Token from https://huggingface.co/settings/tokens
+2. Enter the token in the "Huggingface Token" field and click "Login". This will save the token text in a local file named `HF_TOKEN` (All local and private).
+3. Once you're logged in, you will be able to select a trained LoRA from the dropdown, edit the name if you want, and publish to Huggingface.
+
+![publish_to_hf.png](publish_to_hf.png)
+
+
+## Advanced
+
+The advanced tab is automatically constructed by parsing the launch flags available to the latest version of [kohya sd-scripts](https://github.com/kohya-ss/sd-scripts). This means Fluxgym is a full fledged UI for using the Kohya script.
+
+> By default the advanced tab is hidden. You can click the "advanced" accordion to expand it.
+
+![advanced.png](advanced.png)
+
+
+## Advanced Features
+
+### Uploading Caption Files
+
+You can also upload the caption files along with the image files. You just need to follow the convention:
+
+1. Every caption file must be a `.txt` file.
+2. Each caption file needs to have a corresponding image file that has the same name.
+3. For example, if you have an image file named `img0.png`, the corresponding caption file must be `img0.txt`.
