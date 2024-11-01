@@ -163,23 +163,13 @@ def run_captioning(
     print(f"captions {captions}")
     print(f"description rules {description_rules}")
 
-    # Create an engine configured to use the driver
-    # engine = ImageQueryEngine(
-    #     image_query_driver=driver,
-    # )
     rules_list = description_rules.split("\n")
     rules = [Rule(rule) for rule in rules_list]
     captions = list(captions)  # Convert tuple to a list
     workflow = Workflow()
     driver = OpenAiChatPromptDriver(model="gpt-4o", api_key=openai_api_key)
 
-    summary_task = CodeExecutionTask(
-        "{{ parent_outputs }}",
-        on_run=add_captions_to_list,
-    )
     for i, image_path in enumerate(images):
-        # Instantiate a pipeline
-        # pipeline = Pipeline(rules=rules)
         print(f"Processing image: {image_path}")
 
         # Load the input image artifact
@@ -193,45 +183,14 @@ def run_captioning(
         )
 
         workflow.add_task(task)
-        task.add_child(summary_task)
 
-    result = workflow.run()
-
-    # Break up the result into a list of captions
-    print(f"result={result.output_task.output}")
+    workflow.run()
+    output_tasks = workflow.output_tasks
 
     # convert the result to a list
-    captions_dict = json.loads(str(result.output_task.output))
-    for index, caption in captions_dict.items():
-        captions[int(index) - 1] = caption
+    for index, task in enumerate(output_tasks):
+        captions[int(index)] = task.output.value
         yield captions
-
-    # workflow.add_task(
-    #     ImageQueryTask(
-    #         input=("Describe the image in detail", [image_artifact]),
-    #         image_query_engine=engine,
-    #     )
-    # )
-
-    # Run the pipeline
-    # result = pipeline.run()
-
-    # Extract the caption from the result
-    # caption_text = result.output.value
-
-    # print(f"Generated caption: {caption_text}")
-
-    # Prepend the concept sentence if provided
-    # if concept_sentence:
-    #     caption_text = f"{concept_sentence} {caption_text}"
-
-    # captions[i] = caption_text
-
-    # yield captions
-    # result = workflow.run()
-    # print(f"result={result.output_task.output}")
-    # return captions
-    # No need to manually manage CUDA memory as we're not using PyTorch models directly
 
 
 def recursive_update(d, u):
