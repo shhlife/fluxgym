@@ -29,6 +29,7 @@ MAX_IMAGES = 150
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", None)
+USE_GRIPTAPE = True
 
 
 def load_captioning(uploaded_files, concept_sentence):
@@ -155,7 +156,7 @@ def add_captions_to_list(task: CodeExecutionTask) -> TextArtifact:
     return TextArtifact(json_string)
 
 
-def run_captioning(
+def run_captioning_with_griptape(
     images, concept_sentence, description_rules, openai_api_key, *captions
 ):
     print("run_captioning")
@@ -191,6 +192,67 @@ def run_captioning(
     for index, task in enumerate(output_tasks):
         captions[int(index)] = task.output.value
         yield captions
+
+
+def run_captioning(images, concept_sentence, *captions):
+    print("run_captioning")
+    print(f"concept sentence {concept_sentence}")
+    print(f"captions {captions}")
+    # Load internally to not consume resources for training
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"device={device}")
+    torch_dtype = torch.float16
+    model = AutoModelForCausalLM.from_pretrained(
+        "multimodalart/Florence-2-large-no-flash-attn",
+        torch_dtype=torch_dtype,
+        trust_remote_code=True,
+    ).to(device)
+    processor = AutoProcessor.from_pretrained(
+        "multimodalart/Florence-2-large-no-flash-attn", trust_remote_code=True
+    )
+
+    captions = list(captions)
+    for i, image_path in enumerate(images):
+        print(captions[i])
+        if isinstance(image_path, str):  # If image is a file path
+            image = Image.open(image_path).convert("RGB")
+
+        prompt = "<DETAILED_CAPTION>"
+        inputs = processor(text=prompt, images=image, return_tensors="pt").to(
+            device, torch_dtype
+        )
+        print(f"inputs {inputs}")
+
+        generated_ids = model.generate(
+            input_ids=inputs["input_ids"],
+            pixel_values=inputs["pixel_values"],
+            max_new_tokens=1024,
+            num_beams=3,
+        )
+        print(f"generated_ids {generated_ids}")
+
+        generated_text = processor.batch_decode(
+            generated_ids, skip_special_tokens=False
+        )[0]
+        print(f"generated_text: {generated_text}")
+        parsed_answer = processor.post_process_generation(
+            generated_text, task=prompt, image_size=(image.width, image.height)
+        )
+        print(f"parsed_answer = {parsed_answer}")
+        caption_text = parsed_answer["<DETAILED_CAPTION>"].replace(
+            "The image shows ", ""
+        )
+        print(f"caption_text = {caption_text}, concept_sentence={concept_sentence}")
+        if concept_sentence:
+            caption_text = f"{concept_sentence} {caption_text}"
+        captions[i] = caption_text
+
+        yield captions
+    model.to("cpu")
+    del model
+    del processor
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 def recursive_update(d, u):
@@ -407,7 +469,7 @@ def update(
     num_repeats,
     sample_prompts,
     sample_every_n_steps,
-    description_rules,
+    description_rules=None,
 ):
     output_name = slugify(lora_name)
     dataset_folder = str(f"datasets/{output_name}")
@@ -605,23 +667,30 @@ with gr.Blocks(elem_id="app", theme=theme, css=css, fill_width=True) as demo:
                     visible=True,
                     scale=1,
                 )
-            # add a group to provide the user with the option to add rules to the descriptions
-            with gr.Accordion("Caption Settings", open=True):
-                description_rules = gr.Textbox(
-                    label="Rules for your captions",
-                    info="Add rules for image descriptions, separated by new lines.",
-                    placeholder="Examples:\nAlways mention the background color\nDescribe objects from left to right",
-                )
+            if USE_GRIPTAPE:
+                # add a group to provide the user with the option to add rules to the descriptions
+                with gr.Accordion("Caption Settings", open=True):
+                    description_rules = gr.Textbox(
+                        label="Rules for your captions",
+                        info="Add rules for image descriptions, separated by new lines.",
+                        placeholder="Examples:\nAlways mention the background color\nDescribe objects from left to right",
+                    )
 
-                openai_api_key = gr.Textbox(
-                    label="OpenAI API Key",
-                    info="Add your OpenAI API key to use the Griptape captioning feature.",
-                    placeholder="sk-proj-...",
-                    value=OPENAI_API_KEY,
-                    type="password",
-                )
+                    openai_api_key = gr.Textbox(
+                        label="OpenAI API Key",
+                        info="Add your OpenAI API key to use the Griptape captioning feature.",
+                        placeholder="sk-proj-...",
+                        value=OPENAI_API_KEY,
+                        type="password",
+                    )
+                caption_button_text = "Add AI captions with Griptape"
+            else:
+                description_rules = None
+                openai_api_key = None
+                caption_button_text = "Add AI captions with Florence-2"
+
             with gr.Group(visible=False) as captioning_area:
-                do_captioning = gr.Button("Add AI captions with Griptape")
+                do_captioning = gr.Button(caption_button_text)
                 output_components.append(captioning_area)
                 # output_components = [captioning_area]
                 caption_list = []
@@ -752,12 +821,19 @@ with gr.Blocks(elem_id="app", theme=theme, css=css, fill_width=True) as demo:
         outputs=terminal,
     )
 
-    do_captioning.click(
-        fn=run_captioning,
-        inputs=[images, concept_sentence, description_rules, openai_api_key]
-        + caption_list,
-        outputs=caption_list,
-    )
+    if USE_GRIPTAPE:
+        do_captioning.click(
+            fn=run_captioning_with_griptape,
+            inputs=[images, concept_sentence, description_rules, openai_api_key]
+            + caption_list,
+            outputs=caption_list,
+        )
+    else:
+        do_captioning.click(
+            fn=run_captioning,
+            inputs=[images, concept_sentence] + caption_list,
+            outputs=caption_list,
+        )
     demo.load(fn=loaded, js=js)
 
 if __name__ == "__main__":
