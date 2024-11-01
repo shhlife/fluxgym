@@ -175,7 +175,7 @@ def run_captioning(
 
     summary_task = CodeExecutionTask(
         "{{ parent_outputs }}",
-        run_fn=add_captions_to_list,
+        on_run=add_captions_to_list,
     )
     for i, image_path in enumerate(images):
         # Instantiate a pipeline
