@@ -6,7 +6,6 @@ os.environ["GRADIO_ANALYTICS_ENABLED"] = "0"
 sys.path.insert(0, os.getcwd())
 sys.path.append(os.path.join(os.path.dirname(__file__), "sd-scripts"))
 import re
-import shutil
 from argparse import Namespace
 
 import gradio as gr
@@ -17,15 +16,179 @@ import yaml
 from gradio_logsview import LogsView, LogsViewRunner
 from huggingface_hub import HfApi, hf_hub_download
 from library import flux_train_utils, huggingface_util
-from PIL import Image
-from slugify import slugify
-from transformers import AutoModelForCausalLM, AutoProcessor
 
 MAX_IMAGES = 150
 
 USE_GRIPTAPE = True
 if USE_GRIPTAPE:
     from app_griptape import add_griptape_options, run_captioning_with_griptape
+
+with open("models.yaml", "r") as file:
+    models = yaml.safe_load(file)
+
+
+def readme(base_model, lora_name, instance_prompt, sample_prompts):
+    # model license
+    model_config = models[base_model]
+    model_file = model_config["file"]
+    base_model_name = model_config["base"]
+    license = None
+    license_name = None
+    license_link = None
+    license_items = []
+    if "license" in model_config:
+        license = model_config["license"]
+        license_items.append(f"license: {license}")
+    if "license_name" in model_config:
+        license_name = model_config["license_name"]
+        license_items.append(f"license_name: {license_name}")
+    if "license_link" in model_config:
+        license_link = model_config["license_link"]
+        license_items.append(f"license_link: {license_link}")
+    license_str = "\n".join(license_items)
+    print(f"license_items={license_items}")
+    print(f"license_str = {license_str}")
+
+    # tags
+    tags = ["text-to-image", "flux", "lora", "diffusers", "template:sd-lora", "fluxgym"]
+
+    # widgets
+    widgets = []
+    sample_image_paths = []
+    output_name = slugify(lora_name)
+    samples_dir = resolve_path_without_quotes(f"outputs/{output_name}/sample")
+    try:
+        for filename in os.listdir(samples_dir):
+            # Filename Schema: [name]_[steps]_[index]_[timestamp].png
+            match = re.search(r"_(\d+)_(\d+)_(\d+)\.png$", filename)
+            if match:
+                steps, index, timestamp = (
+                    int(match.group(1)),
+                    int(match.group(2)),
+                    int(match.group(3)),
+                )
+                sample_image_paths.append((steps, index, f"sample/{filename}"))
+
+        # Sort by numeric index
+        sample_image_paths.sort(key=lambda x: x[0], reverse=True)
+
+        final_sample_image_paths = sample_image_paths[: len(sample_prompts)]
+        final_sample_image_paths.sort(key=lambda x: x[1])
+        for i, prompt in enumerate(sample_prompts):
+            _, _, image_path = final_sample_image_paths[i]
+            widgets.append(
+                {
+                    "text": prompt,
+                    "output": {"url": image_path},
+                }
+            )
+    except:
+        print("no samples")
+    dtype = "torch.bfloat16"
+    # Construct the README content
+    readme_content = f"""---
+tags:
+{yaml.dump(tags, indent=4).strip()}
+{"widget:" if os.path.isdir(samples_dir) else ""}
+{yaml.dump(widgets, indent=4).strip() if widgets else ""}
+base_model: {base_model_name}
+{"instance_prompt: " + instance_prompt if instance_prompt else ""}
+{license_str}
+---
+
+# {lora_name}
+
+A Flux LoRA trained on a local computer with [Fluxgym](https://github.com/cocktailpeanut/fluxgym)
+
+<Gallery />
+
+## Trigger words
+
+{"You should use `" + instance_prompt + "` to trigger the image generation." if instance_prompt else "No trigger words defined."}
+
+## Download model and use it with ComfyUI, AUTOMATIC1111, SD.Next, Invoke AI, Forge, etc.
+
+Weights for this model are available in Safetensors format.
+
+"""
+    return readme_content
+
+
+def account_hf():
+    try:
+        with open("HF_TOKEN", "r") as file:
+            token = file.read()
+            api = HfApi(token=token)
+            try:
+                account = api.whoami()
+                return {"token": token, "account": account["name"]}
+            except:
+                return None
+    except:
+        return None
+
+
+"""
+hf_logout.click(fn=logout_hf, outputs=[hf_token, hf_login, hf_logout, repo_owner])
+"""
+
+
+def logout_hf():
+    os.remove("HF_TOKEN")
+    global current_account
+    current_account = account_hf()
+    print(f"current_account={current_account}")
+    return (
+        gr.update(value=""),
+        gr.update(visible=True),
+        gr.update(visible=False),
+        gr.update(value="", visible=False),
+    )
+
+
+"""
+hf_login.click(fn=login_hf, inputs=[hf_token], outputs=[hf_token, hf_login, hf_logout, repo_owner])
+"""
+
+
+def login_hf(hf_token):
+    api = HfApi(token=hf_token)
+    try:
+        account = api.whoami()
+        if account != None:
+            if "name" in account:
+                with open("HF_TOKEN", "w") as file:
+                    file.write(hf_token)
+                global current_account
+                current_account = account_hf()
+                return (
+                    gr.update(visible=True),
+                    gr.update(visible=False),
+                    gr.update(visible=True),
+                    gr.update(value=current_account["account"], visible=True),
+                )
+        return gr.update(), gr.update(), gr.update(), gr.update()
+    except:
+        print("incorrect hf_token")
+        return gr.update(), gr.update(), gr.update(), gr.update()
+
+
+def upload_hf(base_model, lora_rows, repo_owner, repo_name, repo_visibility, hf_token):
+    src = lora_rows
+    repo_id = f"{repo_owner}/{repo_name}"
+    gr.Info("Uploading to Huggingface. Please Stand by...", duration=None)
+    args = Namespace(
+        huggingface_repo_id=repo_id,
+        huggingface_repo_type="model",
+        huggingface_repo_visibility=repo_visibility,
+        huggingface_path_in_repo="",
+        huggingface_token=hf_token,
+        async_upload=False,
+    )
+    print(f"upload_hf args={args}")
+    huggingface_util.upload(args=args, src=src)
+    gr.Info(f"[Upload Complete] https://huggingface.co/{repo_id}", duration=None)
+
 
 with open("models.yaml", "r") as file:
     models = yaml.safe_load(file)
@@ -468,6 +631,10 @@ def gen_sh(
         f"gen_sh: network_dim:{network_dim}, max_train_epochs={max_train_epochs}, save_every_n_epochs={save_every_n_epochs}, timestep_sampling={timestep_sampling}, guidance_scale={guidance_scale}, vram={vram}, sample_prompts={sample_prompts}, sample_every_n_steps={sample_every_n_steps}"
     )
 
+    print(
+        f"gen_sh: network_dim:{network_dim}, max_train_epochs={max_train_epochs}, save_every_n_epochs={save_every_n_epochs}, timestep_sampling={timestep_sampling}, guidance_scale={guidance_scale}, vram={vram}, sample_prompts={sample_prompts}, sample_every_n_steps={sample_every_n_steps}"
+    )
+
     output_dir = resolve_path(f"outputs/{output_name}")
     sample_prompts_path = resolve_path(f"outputs/{output_name}/sample_prompts.txt")
 
@@ -742,7 +909,6 @@ def update(
     num_repeats,
     sample_prompts,
     sample_every_n_steps,
-    # description_rules,
     *advanced_components,
 ):
     output_name = slugify(lora_name)
@@ -1083,7 +1249,6 @@ with gr.Blocks(elem_id="app", theme=theme, css=css, fill_width=True) as demo:
                             visible=True,
                             scale=1,
                         )
-
                     # GRIPTAPE
                     if USE_GRIPTAPE:
                         description_rules, openai_api_key = add_griptape_options()
@@ -1094,6 +1259,7 @@ with gr.Blocks(elem_id="app", theme=theme, css=css, fill_width=True) as demo:
                         do_captioning = gr.Button(
                             f"Add AI captions with {caption_model}"
                         )
+
                         output_components.append(captioning_area)
                         # output_components = [captioning_area]
                         caption_list = []
